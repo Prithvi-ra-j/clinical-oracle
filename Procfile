@@ -1,1 +1,1 @@
-web: python server.py --transport streamable-http --port $PORT
+web: python server.py

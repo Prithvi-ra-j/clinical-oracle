@@ -291,14 +291,9 @@ async def health_check() -> dict:
 
 # Entry point
 if __name__ == "__main__":
-    import sys
-    
-    # Default to streamable-http transport and port 8000
-    if "--transport" not in sys.argv:
-        sys.argv.extend(["--transport", "streamable-http"])
-    
-    if "--port" not in sys.argv:
-        port = os.getenv("PORT", "8000")
-        sys.argv.extend(["--port", port])
-    
-    mcp.run()
+    port = int(os.getenv("PORT", 8000))
+    mcp.run(
+        transport="streamable-http",
+        host="0.0.0.0",
+        port=port
+    )
