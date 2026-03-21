@@ -1,0 +1,43 @@
+# Environment variables
+.env
+
+# Python virtual environment
+venv/
+env/
+ENV/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Demo outputs
+demo_output.json
+
+# Debug/testing files (not for production)
+gemini_response_debug.txt
+test_groq_models.py
+
+# Kiro IDE files (not needed for hackathon submission)
+.kiro/
+IMPLEMENTATION_STATUS.md
+PROJECT_DEVELOPMENT_REPORT.md
+QUICK_START.md
