@@ -174,6 +174,13 @@ async def alert_draft(
     Returns:
         Dict with alert_status, risk_tier, ehr_note, evidence_citations, etc.
     """
+     # Unwrap MCP content wrapper if Prompt Opinion passes raw MCP response
+    if isinstance(risk_score_output, dict) and "content" in risk_score_output:
+        try:
+            import json
+            risk_score_output = json.loads(risk_score_output["content"][0]["text"])
+        except Exception:
+            pass
     if "error" in risk_score_output:
         return {
             "error": "Cannot draft alert — risk_score failed",

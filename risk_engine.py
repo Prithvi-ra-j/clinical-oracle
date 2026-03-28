@@ -150,6 +150,12 @@ async def score_risk(
         Dict with risk_tier, rationale, top_risks, and _metadata.
         On error, returns dict with "error" key and safe defaults.
     """
+     # Unwrap MCP content wrapper if Prompt Opinion passes raw MCP response
+    if isinstance(signal_data, dict) and "content" in signal_data:
+        try:
+            signal_data = json.loads(signal_data["content"][0]["text"])
+        except Exception:
+            pass
     # Check if signal_data contains error
     if "error" in signal_data:
         return {
