@@ -1,22 +1,33 @@
 """
 Clinical Oracle MCP Server
 Exposes polypharmacy risk intelligence tools via Model Context Protocol.
+Gemini-compatible: manual inputSchema definitions strip additionalProperties.
 """
 from fastmcp import FastMCP
 from dotenv import load_dotenv
-from typing import Optional
 import os
 
-# Load environment variables
 load_dotenv()
 
-# Import our modules (no business logic in this file)
 import faers_client
 import fhir_bridge
 import risk_engine
 
+# ── Gemini schema sanitizer ──────────────────────────────────────────────────
+def _strip(obj):
+    """Recursively remove fields Gemini's function-calling spec rejects."""
+    if isinstance(obj, dict):
+        obj.pop("additionalProperties", None)
+        obj.pop("$schema", None)
+        obj.pop("title", None)
+        obj.pop("$defs", None)
+        for v in list(obj.values()):
+            _strip(v)
+    elif isinstance(obj, list):
+        for item in obj:
+            _strip(item)
+    return obj
 
-# Initialize FastMCP server
 mcp = FastMCP(
     name="clinical-oracle",
     version="1.0.0",
@@ -31,6 +42,21 @@ Tools:
 Privacy: No PHI is sent to external APIs. Only extracted clinical parameters are used.
 Compliance: This is an FDA-exempt Clinical Decision Support tool. Clinician review required for all outputs."""
 )
+
+# ── Patch tool listing to strip Gemini-incompatible schema fields ─────────────
+_orig_list_tools = mcp._mcp_server.list_tools
+
+async def _patched_list_tools():
+    tools = await _orig_list_tools()
+    for tool in tools:
+        if hasattr(tool, "inputSchema") and tool.inputSchema:
+            _strip(tool.inputSchema)
+        if hasattr(tool, "outputSchema") and tool.outputSchema:
+            _strip(tool.outputSchema)
+    return tools
+
+mcp._mcp_server.list_tools = _patched_list_tools
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 @mcp.tool()
@@ -56,7 +82,6 @@ async def signal_scan(
     Returns:
         Dict with drug_combination, total_faers_reports, top_adverse_reactions, etc.
     """
-    # If SHARP context provided, fetch patient medications from FHIR
     if sharp_patient_id and sharp_fhir_base_url:
         fhir_context = await fhir_bridge.get_patient_context(
             patient_id=sharp_patient_id,
@@ -66,15 +91,13 @@ async def signal_scan(
         all_meds = list(set(medications + fhir_meds))
         medications = all_meds
 
-    # Convert sex to FAERS code
-    sex_code = ""
+    sex_code = None
     if patient_sex:
         if patient_sex.lower() == "male":
             sex_code = "1"
         elif patient_sex.lower() == "female":
             sex_code = "2"
 
-    # PHI check: Ensure no PHI in medications list
     for med in medications:
         if any(char.isdigit() for char in med) and len(med) < 5:
             return {
@@ -86,13 +109,11 @@ async def signal_scan(
                 "disclaimer": "Query rejected for privacy reasons"
             }
 
-    # Query FAERS
     result = await faers_client.query_combination(
         drugs=medications,
-        sex_code=sex_code if sex_code else None,
+        sex_code=sex_code,
         limit=20
     )
-
     return result
 
 
@@ -128,7 +149,6 @@ async def risk_score(
         conditions=additional_conditions if additional_conditions else None
     )
 
-    # Verify phi_in_prompt=False is present
     if "_metadata" in result:
         assert result["_metadata"]["phi_in_prompt"] == False, "PHI verification failed"
 
@@ -154,7 +174,6 @@ async def alert_draft(
     Returns:
         Dict with alert_status, risk_tier, ehr_note, evidence_citations, etc.
     """
-    # Check if risk_score failed
     if "error" in risk_score_output:
         return {
             "error": "Cannot draft alert — risk_score failed",
@@ -167,10 +186,8 @@ async def alert_draft(
     top_risks = risk_score_output.get("top_risks", [])
     confidence = risk_score_output.get("confidence", "UNKNOWN")
     limitations = risk_score_output.get("limitations", "")
-
     patient_label = patient_identifier if patient_identifier else "[Patient ID]"
 
-    # Build EHR note
     ehr_note = f"""
 ═══════════════════════════════════════════════════════════════
 CLINICAL DECISION SUPPORT ALERT — POLYPHARMACY RISK ASSESSMENT
@@ -268,11 +285,7 @@ async def health_check() -> dict:
         faers_status = "unreachable"
 
     elapsed = time.time() - start_time
-
-    if faers_status == "reachable" and elapsed < 6.0:
-        status = "healthy"
-    else:
-        status = "degraded"
+    status = "healthy" if faers_status == "reachable" and elapsed < 6.0 else "degraded"
 
     return {
         "status": status,
@@ -284,7 +297,6 @@ async def health_check() -> dict:
     }
 
 
-# Entry point
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     mcp.run(
